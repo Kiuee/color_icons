@@ -52,12 +52,18 @@ jobs:
           name: vivoicons-apk
           path: vivoicons-*.apk
 
-      # 标签推送：创建 Release 并附上 APK
-      - name: Create Release
+      # 标签推送：创建 Release 并附上 APK（已存在则只覆盖上传附件）
+      - name: Create or update Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" "vivoicons-${GITHUB_REF_NAME}.apk" \
-            --title "vivoicons ${GITHUB_REF_NAME}" \
-            --generate-notes
+          APK="vivoicons-${GITHUB_REF_NAME}.apk"
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} 已存在，覆盖上传 APK"
+            gh release upload "${GITHUB_REF_NAME}" "$APK" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "$APK" \
+              --title "vivoicons ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
