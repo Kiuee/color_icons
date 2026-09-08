@@ -19,11 +19,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // CI（GitHub Actions）提供 base64 密钥时创建 release 签名配置；
+    // 本地/未配置密钥时不存在该配置，release 自动回退 debug 签名（保证可安装）
+    signingConfigs {
+        if (!System.getenv("CI_KEYSTORE_BASE64").isNullOrEmpty()) {
+            create("ci") {
+                storeFile = rootProject.file("ci.keystore")
+                storePassword = System.getenv("CI_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CI_KEY_ALIAS") ?: "vivoicons"
+                keyPassword = System.getenv("CI_KEY_PASSWORD") ?: System.getenv("CI_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
             }
+            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {
