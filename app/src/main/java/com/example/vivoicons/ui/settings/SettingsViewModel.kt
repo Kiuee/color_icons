@@ -57,7 +57,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** 检查更新：读取 GitHub Releases 最新版本并与本地版本比较 */
+    /** 检查更新：依次尝试多个更新源（CDN 优先，API 兜底），第一个成功即返回 */
     fun checkUpdate() {
         if (_update.value is UpdateState.Checking) return
         _update.value = UpdateState.Checking
@@ -66,35 +66,66 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** 更新源列表：(url, 是否 GitHub API 格式)。静态 update.json 走 CDN 无限额，规避 API 403 */
+    private val updateSources: List<Pair<String, Boolean>> = listOf(
+        "https://cdn.jsdelivr.net/gh/Kiuee/color_icons@main/update.json" to false,
+        "https://raw.githubusercontent.com/Kiuee/color_icons/main/update.json" to false,
+        "https://api.github.com/repos/Kiuee/color_icons/releases/latest" to true,
+    )
+
     private fun doCheck(): UpdateState {
+        val errors = mutableListOf<String>()
+        for ((url, isApiFormat) in updateSources) {
+            val result = fetchSource(url, isApiFormat)
+            when (result) {
+                is SourceHit -> {
+                    return if (isNewerVersion(result.version, BuildConfig.VERSION_NAME)) {
+                        UpdateState.Available(result.version, result.url)
+                    } else {
+                        UpdateState.Latest
+                    }
+                }
+                is SourceFail -> errors += result.message
+            }
+        }
+        return UpdateState.Error("所有更新源均不可达：" + errors.joinToString("；"))
+    }
+
+    private sealed interface SourceResult
+    private data class SourceHit(val version: String, val url: String) : SourceResult
+    private data class SourceFail(val message: String) : SourceResult
+
+    private fun fetchSource(url: String, isApiFormat: Boolean): SourceResult {
         val connection = try {
-            val conn = URL(LATEST_RELEASE_URL).openConnection() as HttpURLConnection
+            val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 10_000
             conn.readTimeout = 10_000
-            conn.setRequestProperty("Accept", "application/vnd.github+json")
+            conn.setRequestProperty("Accept", if (isApiFormat) "application/vnd.github+json" else "*/*")
             conn.setRequestProperty("User-Agent", "color-icons-app")
             conn
         } catch (e: Exception) {
-            return UpdateState.Error("无法连接更新服务器：${e.message}")
+            return SourceFail("$url 连接失败：${e.message}")
         }
         return try {
             val code = connection.responseCode
             if (code != 200) {
-                return UpdateState.Error("服务器返回 $code（请确认仓库为 public）")
+                return SourceFail("$url 返回 $code")
             }
             val body = connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
             val json = JSONObject(body)
-            val tag = json.optString("tag_name", "")
-            val url = json.optString("html_url", RELEASE_PAGE_URL)
-            if (tag.isEmpty()) {
-                UpdateState.Error("更新源返回异常（暂无 Release？）")
-            } else if (isNewerVersion(tag, BuildConfig.VERSION_NAME)) {
-                UpdateState.Available(tag, url)
+            if (isApiFormat) {
+                val tag = json.optString("tag_name", "")
+                val htmlUrl = json.optString("html_url", RELEASE_PAGE_URL)
+                if (tag.isEmpty()) SourceFail("$url 返回异常（tag 为空）")
+                else SourceHit(tag, htmlUrl)
             } else {
-                UpdateState.Latest
+                val version = json.optString("versionName", "")
+                val link = json.optString("url", RELEASE_PAGE_URL)
+                if (version.isEmpty()) SourceFail("$url 返回异常（versionName 为空）")
+                else SourceHit(version, link)
             }
         } catch (e: Exception) {
-            UpdateState.Error("检查失败：${e.message}")
+            SourceFail("$url 解析失败：${e.message}")
         } finally {
             connection.disconnect()
         }
@@ -102,7 +133,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     companion object {
         const val REPO_URL = "https://github.com/Kiuee/color_icons"
-        private const val LATEST_RELEASE_URL = "https://api.github.com/repos/Kiuee/color_icons/releases/latest"
         private const val RELEASE_PAGE_URL = "https://github.com/Kiuee/color_icons/releases"
 
         /** 去 v 前缀，按「.」分段逐段比较数字（1.10 > 1.9） */

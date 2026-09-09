@@ -177,10 +177,19 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
             }
         },
     ) { padding ->
+        // 底栏显隐时平滑过渡，避免内容瞬间跳动
+        val animatedBottom by androidx.compose.animation.core.animateDpAsState(
+            targetValue = padding.calculateBottomPadding(),
+            animationSpec = tween(220),
+            label = "bottomPadding",
+        )
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = padding.calculateTopPadding())
+                .padding(bottom = animatedBottom),
             enterTransition = {
                 val f = tween<Float>(220)
                 fadeIn(f)
@@ -239,12 +248,23 @@ fun WizardScaffold(
 ) {
     val state by vm.ui.collectAsState()
     val step = state.step
+    val editing = state.editingIndex >= 0 || state.multiEditQueue.isNotEmpty()
     var showResetConfirm by remember { mutableStateOf(false) }
 
-    // 离开向导时清理临时编辑状态
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { vm.resetTransient() }
+    // 向导内返回：编辑态回队列；步骤 >1 回退一步；第 1 步清理临时状态后真正退出
+    fun wizardBack() {
+        when {
+            editing -> onBack()
+            step > 1 -> vm.goStep(step - 1)
+            else -> {
+                vm.resetTransient()
+                onBack()
+            }
+        }
     }
+
+    // 接管系统返回：向导内逐级回退，而不是直接退出整个向导
+    BackHandler { wizardBack() }
 
     // 加入队列时的徽章脉冲动画（规范 F）
     val badgeScale = remember { androidx.compose.animation.core.Animatable(1f) }
@@ -269,7 +289,7 @@ fun WizardScaffold(
                     Text(WIZARD_TITLES[step] ?: "", fontWeight = FontWeight.SemiBold)
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { wizardBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
