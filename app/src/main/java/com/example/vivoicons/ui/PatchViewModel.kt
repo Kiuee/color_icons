@@ -38,6 +38,13 @@ import kotlinx.coroutines.withContext
 /** SAF 选择到的单个文件 */
 data class PickedFile(val uri: String, val name: String)
 
+/** 覆盖层页面（detailStack 元素） */
+object DetailRoutes {
+    const val WIZARD = "wizard"
+    const val QUEUE = "queue"
+    const val SUCCESS = "success"
+}
+
 /** 注入成功页信息（独立于工作流记忆的快照，清除记忆后仍保留，仅存内存） */
 data class SuccessInfo(
     val fileName: String,
@@ -50,8 +57,12 @@ data class SuccessInfo(
 )
 
 data class UiState(
-    /** 向导当前步骤（向导是单一路由，步骤由内部状态驱动） */
+    /** 向导当前步骤（向导是覆盖层，步骤由内部状态驱动） */
     val step: Int = 1,
+    /** 底栏选中：true=首页 false=设置 */
+    val homeSelected: Boolean = true,
+    /** 全屏覆盖层栈：向导/队列/成功，从右滑入盖住底栏 */
+    val detailStack: List<String> = emptyList(),
     // 第 1 步
     val apk: TargetApk? = null,
     val apkInfo: ApkInfo? = null,
@@ -176,6 +187,47 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ---------- 覆盖层导航（底栏永不消失：覆盖层滑入盖住底栏） ----------
+
+    /** 打开覆盖层页面（入栈） */
+    fun openDetail(route: String) {
+        _ui.update {
+            if (it.detailStack.lastOrNull() == route) it
+            else it.copy(detailStack = it.detailStack + route)
+        }
+    }
+
+    /** 关闭栈顶覆盖层（带对应清理） */
+    fun closeDetail() {
+        _ui.update { st ->
+            val popped = st.detailStack.lastOrNull() ?: return@update st
+            var next = st.copy(detailStack = st.detailStack.dropLast(1))
+            when (popped) {
+                DetailRoutes.WIZARD -> next = next.copy(
+                    editingIndex = -1,
+                    multiEditQueue = emptyList(),
+                    multiEditTotal = 0,
+                    entryJustAdded = false,
+                )
+                DetailRoutes.QUEUE -> next = next.copy(selectionActive = false, selected = emptySet())
+            }
+            next
+        }
+    }
+
+    /** 关闭全部覆盖层（成功页「确定」） */
+    fun closeAllDetails() {
+        _ui.update { it.copy(detailStack = emptyList()) }
+    }
+
+    /** 底栏切换：true=首页 false=设置 */
+    fun selectTab(home: Boolean) = _ui.update { it.copy(homeSelected = home) }
+
+    /** 注入完成：以成功页替换整个覆盖栈 */
+    fun openSuccess() {
+        _ui.update { it.copy(detailStack = listOf(DetailRoutes.SUCCESS)) }
+    }
+
     // ---------- 第 1 步 ----------
 
     fun onApkPicked(uri: Uri) {
@@ -289,18 +341,20 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 从队列管理页编辑单个条目（左滑编辑）；页面切换由 UI 的回调完成 */
+    /** 从队列管理页编辑单个条目（左滑编辑）；覆盖层滑入向导 */
     fun editFromQueue(index: Int) {
         startEditingAt(index)
+        openDetail(DetailRoutes.WIZARD)
     }
 
-    /** 多选顺序编辑：逐个编辑选中项，带进度指示（「批量编辑 i/n」）；页面切换由 UI 回调完成 */
+    /** 多选顺序编辑：逐个编辑选中项，带进度指示（「批量编辑 i/n」）；覆盖层滑入向导 */
     fun editSelectedSequentially(): Boolean {
         val st = _ui.value
         if (st.selected.isEmpty()) return false
         val order = st.selected.toList().sorted()
         _ui.update { it.copy(multiEditQueue = order, multiEditTotal = order.size) }
         startEditingAt(order.first())
+        openDetail(DetailRoutes.WIZARD)
         return true
     }
 
@@ -314,7 +368,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 离开页面时的临时状态清理（Navigation onDispose 调用，不影响已保存数据） */
+    /** 离开向导时的临时状态清理（不影响已保存数据） */
     fun resetTransient() {
         _ui.update { st ->
             st.copy(
@@ -610,12 +664,12 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
             outputUri = outputUri,
             overwrittenExisting = overwroteFinal,
         )
-        // 清理过程文件与全部记忆
+        // 清理过程文件与全部记忆；工作流重置并以成功页作为覆盖层
         runCatching { cacheApk.delete() }
         runCatching { patchOutput.delete() }
         prefs.clear()
         _success.value = info
-        _ui.value = UiState()
+        _ui.value = UiState(detailStack = listOf(DetailRoutes.SUCCESS))
     }
 
     /**
@@ -692,10 +746,10 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 成功页「确定」：清除成功信息回到首页 */
+    /** 成功页「确定」：清除成功信息与覆盖层，回到首页 */
     fun finishSuccess() {
         _success.value = null
-        _ui.update { it.copy(step = 1) }
+        _ui.update { it.copy(detailStack = emptyList(), step = 1) }
     }
 
     /** 清除全部记忆并回到首页 */

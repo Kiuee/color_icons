@@ -6,8 +6,12 @@ import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -18,6 +22,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -62,14 +67,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.core.net.toUri
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.core.net.toUri
 import com.example.vivoicons.ui.components.StepHeader
 import com.example.vivoicons.ui.home.HomeScreen
 import com.example.vivoicons.ui.queue.QueueManagerScreen
@@ -82,39 +84,42 @@ import com.example.vivoicons.ui.steps.Step3Inject
 import com.example.vivoicons.ui.success.SuccessScreen
 import com.example.vivoicons.ui.theme.AppShapes
 
-/** 页面路由（Navigation Compose） */
-object Routes {
-    const val HOME = "home"
-    const val SETTINGS = "settings"
-    const val WIZARD = "wizard"
-    const val QUEUE = "queue"
-    const val SUCCESS = "success"
-}
-
 private val WIZARD_TITLES = mapOf(1 to "选择 APK", 2 to "添加资源", 3 to "注入")
 
-/** 应用根：官方 Navigation Compose 路由（home/settings/wizard/queue/success） */
+/**
+ * 应用根：覆盖式导航。
+ * 底层 = 首页/设置（底栏常驻，永不消失）；流程页（向导/队列/成功）作为全屏覆盖层
+ * 从右侧滑入盖住底栏——转场全程底栏不动、不闪失。
+ */
 @Composable
 fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
-    val navController = rememberNavController()
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val route = backStackEntry?.destination?.route ?: Routes.HOME
-    val context = LocalContext.current
-    var lastBackAt by remember { mutableLongStateOf(0L) }
+    val state by vm.ui.collectAsState()
     val success by vm.success.collectAsState()
     val update by settingsVm.update.collectAsState()
+    val context = LocalContext.current
+    var lastBackAt by remember { mutableLongStateOf(0L) }
     var updateDialogDismissed by remember { mutableStateOf(false) }
 
-    // 注入完成 → 跳转成功页（清空工作流栈，成功页返回即回首页）
+    // 注入完成 → 以成功页覆盖层替换整个流程
     LaunchedEffect(success) {
-        if (success != null && route != Routes.SUCCESS) {
-            navController.navigate(Routes.SUCCESS) { popUpTo(Routes.HOME) }
+        if (success != null) vm.openSuccess()
+    }
+
+    // 返回：覆盖层逐层弹出；无覆盖层时首页双击退出
+    BackHandler(enabled = state.detailStack.isNotEmpty()) { vm.closeDetail() }
+    BackHandler(enabled = state.detailStack.isEmpty()) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastBackAt < 2000) {
+            vm.clearMemoryAndExit()
+            (context as? Activity)?.finishAffinity()
+        } else {
+            lastBackAt = now
+            Toast.makeText(context, "再按一次返回键退出并清除记忆", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // 自动检查发现新版本 → 全局圆角提示对话框
-    val showUpdateDialog = update is UpdateState.Available &&
-        !updateDialogDismissed && route != Routes.SUCCESS
+    // 自动检查发现新版本 → 圆角提示对话框
+    val showUpdateDialog = update is UpdateState.Available && !updateDialogDismissed
     if (showUpdateDialog) {
         val available = update as UpdateState.Available
         AlertDialog(
@@ -126,9 +131,7 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
             confirmButton = {
                 TextButton(onClick = {
                     updateDialogDismissed = true
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, available.url.toUri()),
-                    )
+                    context.startActivity(Intent(Intent.ACTION_VIEW, available.url.toUri()))
                 }) { Text("前往下载") }
             },
             dismissButton = {
@@ -137,106 +140,102 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
         )
     }
 
-    // 首页双击返回退出（规范 A）
-    BackHandler(enabled = route == Routes.HOME) {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastBackAt < 2000) {
-            vm.clearMemoryAndExit()
-            (context as? Activity)?.finishAffinity()
-        } else {
-            lastBackAt = now
-            Toast.makeText(context, "再按一次返回键退出并清除记忆", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            // 底部导航栏仅在首页 / 设置页显示
-            if (route == Routes.HOME || route == Routes.SETTINGS) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        // 基座：首页/设置 + 常驻底栏
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                     NavigationBarItem(
-                        selected = route == Routes.HOME,
-                        onClick = {
-                            if (route != Routes.HOME) {
-                                navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
-                            }
-                        },
+                        selected = state.homeSelected,
+                        onClick = { vm.selectTab(true) },
                         icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
                         label = { Text("首页") },
                     )
                     NavigationBarItem(
-                        selected = route == Routes.SETTINGS,
-                        onClick = {
-                            if (route != Routes.SETTINGS) {
-                                navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
-                            }
-                        },
+                        selected = !state.homeSelected,
+                        onClick = { vm.selectTab(false) },
                         icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                         label = { Text("设置") },
                     )
                 }
-            }
-        },
-    ) { padding ->
-        // 底栏显隐时平滑过渡，避免内容瞬间跳动
-        val animatedBottom by androidx.compose.animation.core.animateDpAsState(
-            targetValue = padding.calculateBottomPadding(),
-            animationSpec = tween(220),
-            label = "bottomPadding",
-        )
-        NavHost(
-            navController = navController,
-            startDestination = Routes.HOME,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = padding.calculateTopPadding())
-                .padding(bottom = animatedBottom),
-            enterTransition = {
-                slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))
             },
-            exitTransition = {
-                slideOutHorizontally(tween(220)) { -it / 4 } + fadeOut(tween(180))
+        ) { padding ->
+            AnimatedContent(
+                targetState = state.homeSelected,
+                label = "topTabs",
+                transitionSpec = {
+                    // 官方 Tab 样式：轻柔交叉淡入淡出
+                    fadeIn(tween(200)) togetherWith fadeOut(tween(200))
+                },
+            ) { homeSelected ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    if (homeSelected) {
+                        HomeScreen(vm = vm, onOpenWizard = { vm.openDetail(DetailRoutes.WIZARD) })
+                    } else {
+                        SettingsScreen(vm = settingsVm)
+                    }
+                }
+            }
+        }
+
+        // 覆盖层：全屏流程页，滑入盖住底栏（推入时下层原地保留，绝不露出首页）
+        AnimatedContent(
+            targetState = state.detailStack,
+            label = "detailOverlay",
+            transitionSpec = {
+                val push = targetState.size > initialState.size
+                if (push) {
+                    // 新页滑入盖住；下层原地保留（KeepUntilTransitionsFinished）
+                    slideIntoContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Left,
+                        tween(300, easing = FastOutSlowInEasing),
+                    ) togetherWith ExitTransition.KeepUntilTransitionsFinished
+                } else {
+                    // 栈顶向右滑走；露出的下层原地出现
+                    EnterTransition.None togetherWith slideOutOfContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Right,
+                        tween(300, easing = FastOutSlowInEasing),
+                    )
+                }
             },
-            popEnterTransition = {
-                slideInHorizontally(tween(220)) { -it / 4 } + fadeIn(tween(220))
-            },
-            popExitTransition = {
-                slideOutHorizontally(tween(220)) { it / 4 } + fadeOut(tween(180))
-            },
-        ) {
-            composable(Routes.HOME) {
-                HomeScreen(vm = vm, onOpenWizard = { navController.navigate(Routes.WIZARD) })
-            }
-            composable(Routes.SETTINGS) { SettingsScreen(vm = settingsVm) }
-            composable(Routes.WIZARD) {
-                WizardScaffold(
-                    vm = vm,
-                    onBack = { navController.popBackStack() },
-                    onOpenQueue = { navController.navigate(Routes.QUEUE) },
-                )
-            }
-            composable(Routes.QUEUE) {
-                QueueManagerScreen(
-                    vm = vm,
-                    onBack = { navController.popBackStack() },
-                    onEditItem = { index ->
-                        vm.editFromQueue(index)
-                        navController.navigate(Routes.WIZARD)
-                    },
-                    onEditSelected = {
-                        if (vm.editSelectedSequentially()) navController.navigate(Routes.WIZARD)
-                    },
-                )
-            }
-            composable(Routes.SUCCESS) {
-                SuccessScreen(vm = vm, onDone = { navController.popBackStack() })
-            }
+        ) { stack ->
+            stack.lastOrNull()?.let { detail ->
+                Box(Modifier.fillMaxSize()) {
+                    when (detail) {
+                        DetailRoutes.WIZARD -> WizardScaffold(
+                            vm = vm,
+                            onBack = { vm.closeDetail() },
+                            onOpenQueue = { vm.openDetail(DetailRoutes.QUEUE) },
+                        )
+                        DetailRoutes.QUEUE -> QueueManagerScreen(
+                            vm = vm,
+                            onBack = { vm.closeDetail() },
+                            onEditItem = { index ->
+                                vm.editFromQueue(index)
+                                vm.openDetail(DetailRoutes.WIZARD)
+                            },
+                            onEditSelected = {
+                                if (vm.editSelectedSequentially()) vm.openDetail(DetailRoutes.WIZARD)
+                            },
+                        )
+                        DetailRoutes.SUCCESS -> SuccessScreen(vm = vm, onDone = {
+                            vm.finishSuccess()
+                            vm.closeAllDetails()
+                        })
+                        else -> Box(Modifier.fillMaxSize())
+                    }
+                }
+            } ?: Box(Modifier.fillMaxSize())
         }
     }
 }
 
-/** 向导壳（规范 B/C/D/H）：AppBar（返回/重置/队列徽章）+ 波浪步骤条 + 右下角 Extended FAB */
+/** 向导覆盖层（规范 B/C/D/H）：AppBar（返回/重置/队列徽章）+ 波浪步骤条 + 右下角 Extended FAB */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WizardScaffold(
@@ -252,7 +251,12 @@ fun WizardScaffold(
     // 向导内返回：编辑态回队列；步骤 >1 回退一步；第 1 步清理临时状态后真正退出
     fun wizardBack() {
         when {
-            editing -> onBack()
+            editing -> {
+                if (vm.confirmEntry() && !vm.hasMoreToEdit) {
+                    vm.finishEdit()
+                    onBack()
+                }
+            }
             step > 1 -> vm.goStep(step - 1)
             else -> {
                 vm.resetTransient()
@@ -331,12 +335,23 @@ fun WizardScaffold(
                 currentStep = step,
                 onStepClick = { target -> vm.backToStep(target) },
             )
-            androidx.compose.animation.AnimatedContent(
+            AnimatedContent(
                 targetState = step,
                 label = "stepContent",
                 transitionSpec = {
-                    // 步骤间只做轻柔淡入淡出，方向感交给外层导航转场
-                    fadeIn(tween(240)) togetherWith fadeOut(tween(160))
+                    // 向导内步骤切换：前进右滑入，后退反向滑回
+                    val forward = targetState > initialState
+                    if (forward) {
+                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it } +
+                            fadeIn(tween(300, easing = FastOutSlowInEasing)) togetherWith
+                            slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } +
+                            fadeOut(tween(300, easing = FastOutSlowInEasing))
+                    } else {
+                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } +
+                            fadeIn(tween(300, easing = FastOutSlowInEasing)) togetherWith
+                            slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { it } +
+                            fadeOut(tween(300, easing = FastOutSlowInEasing))
+                    }
                 },
             ) { current ->
                 Box(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {

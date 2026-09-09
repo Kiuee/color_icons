@@ -34,8 +34,8 @@ android {
 
     buildTypes {
         release {
+            // AGP 9.2 唯一的 R8 开关；gradual 标志见 gradle.properties（experimental 提示无害）
             optimization {
-                // AGP 9：开启即同时启用 R8 与优化的资源收缩（默认行为）
                 enable = true
             }
             proguardFiles(
@@ -70,7 +70,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
-    implementation(libs.androidx.navigation.compose)
     implementation(libs.reandroid.arsclib)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
