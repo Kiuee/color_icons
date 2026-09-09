@@ -46,13 +46,13 @@ import com.example.vivoicons.ui.theme.AppShapes
 /** 注入成功页：默认已清除记忆，展示文件路径，提供分享 / 确定 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SuccessScreen(vm: PatchViewModel) {
+fun SuccessScreen(vm: PatchViewModel, onDone: () -> Unit) {
     val success by vm.success.collectAsState()
     val info = success
     val context = LocalContext.current
 
     // 成功页是终态：系统返回等价于「确定」
-    BackHandler { vm.finishSuccess() }
+    BackHandler { onDone() }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -171,7 +171,7 @@ fun SuccessScreen(vm: PatchViewModel) {
                     }
                 }
                 FilledTonalButton(
-                    onClick = { vm.finishSuccess() },
+                    onClick = onDone,
                     modifier = Modifier.weight(1f),
                     shape = AppShapes.large,
                 ) { Text("确定") }

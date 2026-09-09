@@ -1,5 +1,6 @@
 package com.example.vivoicons.ui.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.vivoicons.ui.PatchViewModel
@@ -36,7 +39,7 @@ import com.example.vivoicons.ui.theme.AppShapes
 /** 首页：hero 区 + 一张大圆角信息卡（条目间白色细分隔线，内容在 HomeInfo.kt 里改代码维护） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: PatchViewModel) {
+fun HomeScreen(vm: PatchViewModel, onOpenWizard: () -> Unit) {
     val scroll = rememberScrollState()
 
     Scaffold(
@@ -80,7 +83,7 @@ fun HomeScreen(vm: PatchViewModel) {
 
             // 主要位置的「开始导入」按钮
             Button(
-                onClick = { vm.openWizard() },
+                onClick = onOpenWizard,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -117,6 +120,15 @@ fun HomeScreen(vm: PatchViewModel) {
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            item.imageRes?.let { res ->
+                                Spacer(Modifier.height(8.dp))
+                                Image(
+                                    painter = painterResource(res),
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                             if (item.body.isNotEmpty()) {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -124,7 +136,7 @@ fun HomeScreen(vm: PatchViewModel) {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                            } else {
+                            } else if (item.imageRes == null) {
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "（预留）",

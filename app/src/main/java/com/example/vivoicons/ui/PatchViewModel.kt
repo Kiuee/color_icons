@@ -38,14 +38,6 @@ import kotlinx.coroutines.withContext
 /** SAF 选择到的单个文件 */
 data class PickedFile(val uri: String, val name: String)
 
-/** 应用内屏幕（返回栈节点） */
-sealed interface Screen {
-    data object Home : Screen
-    data class Wizard(val step: Int) : Screen
-    data object QueueManager : Screen
-    data object Success : Screen
-}
-
 /** 注入成功页信息（独立于工作流记忆的快照，清除记忆后仍保留，仅存内存） */
 data class SuccessInfo(
     val fileName: String,
@@ -58,7 +50,8 @@ data class SuccessInfo(
 )
 
 data class UiState(
-    val backStack: List<Screen> = listOf(Screen.Home),
+    /** 向导当前步骤（向导是单一路由，步骤由内部状态驱动） */
+    val step: Int = 1,
     // 第 1 步
     val apk: TargetApk? = null,
     val apkInfo: ApkInfo? = null,
@@ -91,8 +84,6 @@ data class UiState(
     // 徽章脉冲动画触发器（每次加入队列 +1）
     val badgePulse: Int = 0,
 ) {
-    val screen: Screen get() = backStack.last()
-    val currentStep: Int get() = (backStack.lastOrNull() as? Screen.Wizard)?.step ?: 1
     val queueBadge: Int get() = queue.size
     val canGoStep2: Boolean get() = apk != null && apkInfo != null && !parsingApk
     val canConfirmEntry: Boolean
@@ -149,7 +140,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
             }
             _ui.update {
                 it.copy(
-                    backStack = listOf(Screen.Home, Screen.Wizard(saved.step.coerceIn(1, 3))),
+                    step = saved.step.coerceIn(1, 3),
                     apk = apk,
                     queue = saved.queue,
                 )
@@ -158,48 +149,31 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ---------- 导航（规范 H：AppBar 返回 + 系统返回共用） ----------
+    // ---------- 向导内部步骤（页面切换由 Navigation Compose 处理） ----------
 
-    private fun push(screen: Screen) = _ui.update { it.copy(backStack = it.backStack + screen) }
-
-    fun back() {
-        _ui.update { st ->
-            val popped = st.backStack.lastOrNull()
-            var next = st
-            if (popped is Screen.QueueManager) {
-                next = next.copy(selectionActive = false, selected = emptySet())
-            }
-            if (popped is Screen.Wizard && (st.editingIndex >= 0 || st.multiEditQueue.isNotEmpty())) {
-                next = next.copy(editingIndex = -1, multiEditQueue = emptyList(), entryJustAdded = false)
-            }
-            next.copy(backStack = st.backStack.dropLast(1).ifEmpty { listOf(Screen.Home) })
-        }
-    }
-
-    /** 步骤节点跳转（规范 C：只能返回之前的步骤） */
+    /** 步骤节点跳转（只能返回之前的步骤） */
     fun backToStep(step: Int) {
         _ui.update { st ->
-            val idx = st.backStack.indexOfLast { it is Screen.Wizard && it.step == step }
-            if (idx <= 0) st else st.copy(backStack = st.backStack.take(idx + 1))
+            if (step in 1..3 && step < st.step) st.copy(step = step) else st
         }
+        viewModelScope.launch { prefs.saveStep(_ui.value.step) }
     }
 
-    fun openWizard() {
-        if (_ui.value.apk != null && _ui.value.canGoStep2) {
-            // 有记忆时直接回到记忆的步骤
-            push(Screen.Wizard(_ui.value.currentStep.coerceAtLeast(1)))
-        } else {
-            push(Screen.Wizard(1))
-        }
-    }
-
+    /** 向导内前进一步 */
     fun nextStep() {
-        val target = _ui.value.currentStep + 1
-        if (target <= 3) push(Screen.Wizard(target))
+        val target = _ui.value.step + 1
+        if (target <= 3) {
+            _ui.update { it.copy(step = target) }
+            viewModelScope.launch { prefs.saveStep(target) }
+        }
     }
 
-    fun openQueueManager() {
-        if (_ui.value.screen !is Screen.QueueManager) push(Screen.QueueManager)
+    /** 回到指定步骤（向导内部切换用） */
+    fun goStep(step: Int) {
+        if (step in 1..3) {
+            _ui.update { it.copy(step = step) }
+            viewModelScope.launch { prefs.saveStep(step) }
+        }
     }
 
     // ---------- 第 1 步 ----------
@@ -315,28 +289,44 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** 从队列管理页编辑单个条目（左滑编辑），完成后返回队列页 */
+    /** 从队列管理页编辑单个条目（左滑编辑）；页面切换由 UI 的回调完成 */
     fun editFromQueue(index: Int) {
         startEditingAt(index)
-        push(Screen.Wizard(2))
     }
 
-    /** 多选顺序编辑：逐个编辑选中项，带进度指示（「批量编辑 i/n」） */
+    /** 多选顺序编辑：逐个编辑选中项，带进度指示（「批量编辑 i/n」）；页面切换由 UI 回调完成 */
     fun editSelectedSequentially(): Boolean {
         val st = _ui.value
         if (st.selected.isEmpty()) return false
         val order = st.selected.toList().sorted()
         _ui.update { it.copy(multiEditQueue = order, multiEditTotal = order.size) }
         startEditingAt(order.first())
-        push(Screen.Wizard(2))
         return true
     }
 
     /** 是否还有后续待编辑项（顺序编辑未完成时 UI 不出栈） */
     val hasMoreToEdit: Boolean get() = _ui.value.multiEditQueue.isNotEmpty()
 
-    /** 编辑保存成功后由 UI 调用：无剩余项时出栈回队列页 */
-    fun finishEdit() = back()
+    /** 编辑保存成功且无剩余项时由 UI 调用：清除编辑状态（页面返回由 UI 完成） */
+    fun finishEdit() {
+        _ui.update {
+            it.copy(editingIndex = -1, multiEditQueue = emptyList(), multiEditTotal = 0, entryJustAdded = false)
+        }
+    }
+
+    /** 离开页面时的临时状态清理（Navigation onDispose 调用，不影响已保存数据） */
+    fun resetTransient() {
+        _ui.update { st ->
+            st.copy(
+                selectionActive = false,
+                selected = emptySet(),
+                editingIndex = if (st.editingIndex >= 0 || st.multiEditQueue.isNotEmpty()) -1 else st.editingIndex,
+                multiEditQueue = emptyList(),
+                multiEditTotal = 0,
+                entryJustAdded = false,
+            )
+        }
+    }
 
     fun removeFromQueue(index: Int) {
         val queue = _ui.value.queue.toMutableList()
@@ -625,7 +615,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { patchOutput.delete() }
         prefs.clear()
         _success.value = info
-        _ui.value = UiState(backStack = listOf(Screen.Home, Screen.Success))
+        _ui.value = UiState()
     }
 
     /**
@@ -705,7 +695,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
     /** 成功页「确定」：清除成功信息回到首页 */
     fun finishSuccess() {
         _success.value = null
-        _ui.update { it.copy(backStack = listOf(Screen.Home)) }
+        _ui.update { it.copy(step = 1) }
     }
 
     /** 清除全部记忆并回到首页 */

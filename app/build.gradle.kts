@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.vivoicons"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -35,10 +35,18 @@ android {
     buildTypes {
         release {
             optimization {
-                enable = false
+                // AGP 9：开启即同时启用 R8 与优化的资源收缩（默认行为）
+                enable = true
             }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")
         }
+    }
+    androidResources {
+        localeFilters += listOf("en", "zh-rCN")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -46,6 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -61,6 +70,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.reandroid.arsclib)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

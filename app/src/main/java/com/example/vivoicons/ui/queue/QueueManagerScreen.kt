@@ -77,7 +77,12 @@ private val TAB_TITLES = listOf("已添加", "已扫描")
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun QueueManagerScreen(vm: PatchViewModel) {
+fun QueueManagerScreen(
+    vm: PatchViewModel,
+    onBack: () -> Unit,
+    onEditItem: (Int) -> Unit,
+    onEditSelected: () -> Unit,
+) {
     val state by vm.ui.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }
@@ -90,6 +95,11 @@ fun QueueManagerScreen(vm: PatchViewModel) {
     val addedListState = rememberLazyListState()
     val scannedListState = rememberLazyListState()
     val inSelection = state.selectionActive
+
+    // 离开队列页时清理多选状态
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { vm.exitSelection() }
+    }
 
     val scannedPackages = state.apkInfo?.existingPackages ?: emptyList()
 
@@ -124,7 +134,7 @@ fun QueueManagerScreen(vm: PatchViewModel) {
                     },
                     navigationIcon = {
                         IconButton(onClick = {
-                            if (inSelection) vm.exitSelection() else vm.back()
+                            if (inSelection) vm.exitSelection() else onBack()
                         }) {
                             Icon(
                                 if (inSelection) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
@@ -147,9 +157,9 @@ fun QueueManagerScreen(vm: PatchViewModel) {
                                 onClick = {
                                     val first = state.selected.firstOrNull()
                                     if (state.selected.size == 1 && first != null) {
-                                        vm.editFromQueue(first)
+                                        onEditItem(first)
                                     } else {
-                                        vm.editSelectedSequentially()
+                                        onEditSelected()
                                     }
                                 },
                                 enabled = state.selected.isNotEmpty(),
@@ -250,7 +260,7 @@ fun QueueManagerScreen(vm: PatchViewModel) {
                                         else if (revealedIndex == index) -1 else revealedIndex
                                     },
                                     onInfo = { infoEntry = entry },
-                                    onEdit = { vm.editFromQueue(index) },
+                                    onEdit = { onEditItem(index) },
                                     onDelete = { deleteIndex = index },
                                 )
                             }
