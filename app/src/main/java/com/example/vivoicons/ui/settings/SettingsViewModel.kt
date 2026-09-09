@@ -68,8 +68,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     /** 更新源列表：(url, 是否 GitHub API 格式)。静态 update.json 走 CDN 无限额，规避 API 403 */
     private val updateSources: List<Pair<String, Boolean>> = listOf(
-        "https://cdn.jsdelivr.net/gh/Kiuee/color_icons@main/update.json" to false,
-        "https://raw.githubusercontent.com/Kiuee/color_icons/main/update.json" to false,
+        "https://cdn.jsdelivr.net/gh/Kiuee/color_icons@master/update.json" to false,
+        "https://raw.githubusercontent.com/Kiuee/color_icons/master/update.json" to false,
         "https://api.github.com/repos/Kiuee/color_icons/releases/latest" to true,
     )
 
