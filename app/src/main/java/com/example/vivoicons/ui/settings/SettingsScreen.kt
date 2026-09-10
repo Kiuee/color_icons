@@ -50,12 +50,12 @@ import com.example.vivoicons.ui.theme.AppShapes
 
 /** 预设主题种子色 */
 private val SEED_PRESETS = listOf(
-    "靛蓝" to 0xFF5655C4.toInt(),
-    "海蓝" to 0xFF1565C0.toInt(),
-    "青碧" to 0xFF00696E.toInt(),
-    "松绿" to 0xFF2E6B27.toInt(),
-    "琥珀" to 0xFF9A6C00.toInt(),
-    "砖红" to 0xFFB3261E.toInt(),
+    "ZI" to 0xFF5A5AC6.toInt(),
+    "LAN" to 0xFF769CDF.toInt(),
+    "LV" to 0xFF4C662B.toInt(),
+    "ZONG" to 0xFFB33B15.toInt(),
+    "HONG" to 0xFFCC1227.toInt(),
+    "HUANG" to 0xFFFFDE3F.toInt(),
     "藕粉" to 0xFF8E4957.toInt(),
     "暖棕" to 0xFF6D4C41.toInt(),
 )
@@ -216,7 +216,7 @@ fun SettingsScreen(vm: SettingsViewModel) {
             SectionCard(title = "关于") {
                 InfoRow("版本", "v${BuildConfig.VERSION_NAME} · ARSCLib 1.3.8 引擎")
                 RowDivider()
-                InfoRow("应用", "vivo 场景图标资源注入工具")
+                InfoRow("应用", "vivo 图标资源注入工具")
                 RowDivider()
                 Row(
                     modifier = Modifier
@@ -230,7 +230,7 @@ fun SettingsScreen(vm: SettingsViewModel) {
                 ) {
                     Text("GitHub 仓库", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "Kiuee/color_icons",
+                        "color_icons",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )

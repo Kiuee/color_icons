@@ -35,6 +35,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.vivoicons.ui.PatchViewModel
+import com.example.vivoicons.ui.home.rememberMcScExplainer
 import com.example.vivoicons.ui.theme.AppShapes
 
 /** 首页：hero 区 + 一张大圆角信息卡（条目间白色细分隔线，内容在 HomeInfo.kt 里改代码维护） */
@@ -78,7 +79,7 @@ fun HomeScreen(vm: PatchViewModel, onOpenWizard: () -> Unit) {
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    "vivo 场景图标资源注入",
+                    "vivo 图标资源注入",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -123,6 +124,22 @@ fun HomeScreen(vm: PatchViewModel, onOpenWizard: () -> Unit) {
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            if (item.mcScExplainer) {
+                                // 随主题变色的 mc/sc 说明图
+                                val colorScheme = MaterialTheme.colorScheme
+                                val explainer = rememberMcScExplainer(
+                                    onPrimaryContainer = colorScheme.primary,
+                                    primaryContainer = colorScheme.primaryContainer,
+                                    background = colorScheme.surfaceContainerLowest,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Image(
+                                    imageVector = explainer,
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                             item.imageRes?.let { res ->
                                 Spacer(Modifier.height(8.dp))
                                 Image(

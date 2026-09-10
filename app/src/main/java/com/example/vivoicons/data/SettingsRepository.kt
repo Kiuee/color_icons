@@ -16,7 +16,7 @@ data class AppSettings(
     /** true = 跟随系统主题色（Android 12+ 动态取色）；false = 使用手动选择的种子色 */
     val dynamicColor: Boolean = true,
     /** 手动主题色种子色（ARGB） */
-    val seedColor: Int = 0xFF5655C4.toInt(),
+    val seedColor: Int = 0xFF4C662B.toInt(),
     /** 深色模式：system / light / dark */
     val darkMode: String = DARK_MODE_SYSTEM,
     /** 自动检查更新 */
@@ -41,7 +41,7 @@ class SettingsRepository(private val context: Context) {
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { p ->
         AppSettings(
             dynamicColor = p[Keys.dynamicColor] ?: true,
-            seedColor = p[Keys.seedColor] ?: 0xFF5655C4.toInt(),
+            seedColor = p[Keys.seedColor] ?: 0xFF4C662B.toInt(),
             darkMode = p[Keys.darkMode] ?: AppSettings.DARK_MODE_SYSTEM,
             autoUpdate = p[Keys.autoUpdate] ?: true,
         )

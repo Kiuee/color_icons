@@ -59,8 +59,6 @@ data class SuccessInfo(
 data class UiState(
     /** 向导当前步骤（向导是覆盖层，步骤由内部状态驱动） */
     val step: Int = 1,
-    /** 底栏选中：true=首页 false=设置 */
-    val homeSelected: Boolean = true,
     /** 全屏覆盖层栈：向导/队列/成功，从右滑入盖住底栏 */
     val detailStack: List<String> = emptyList(),
     // 第 1 步
@@ -219,9 +217,6 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
     fun closeAllDetails() {
         _ui.update { it.copy(detailStack = emptyList()) }
     }
-
-    /** 底栏切换：true=首页 false=设置 */
-    fun selectTab(home: Boolean) = _ui.update { it.copy(homeSelected = home) }
 
     /** 注入完成：以成功页替换整个覆盖栈 */
     fun openSuccess() {

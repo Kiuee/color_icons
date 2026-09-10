@@ -51,6 +51,7 @@ import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,7 +61,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -99,6 +102,14 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
     val context = LocalContext.current
     var lastBackAt by remember { mutableLongStateOf(0L) }
     var updateDialogDismissed by remember { mutableStateOf(false) }
+
+    // 底栏选中态（官方 Navigation.kt 写法：rememberSaveable + ordinal）
+    var selectedDestination by rememberSaveable { mutableIntStateOf(0) }
+
+    /** 底栏 Tab 切换（首页 ⇄ 设置交叉淡入淡出） */
+    fun navigateTab(index: Int) {
+        selectedDestination = index
+    }
 
     // 注入完成 → 以成功页覆盖层替换整个流程
     LaunchedEffect(success) {
@@ -145,20 +156,23 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // 基座：首页/设置 + 常驻底栏
+        // 基座：首页/设置 + 常驻底栏（官方 Navigation.kt 结构：底栏无条件组合）
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                NavigationBar(
+                    windowInsets = NavigationBarDefaults.windowInsets,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
                     NavigationBarItem(
-                        selected = state.homeSelected,
-                        onClick = { vm.selectTab(true) },
+                        selected = selectedDestination == 0,
+                        onClick = { navigateTab(0) },
                         icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
                         label = { Text("首页") },
                     )
                     NavigationBarItem(
-                        selected = !state.homeSelected,
-                        onClick = { vm.selectTab(false) },
+                        selected = selectedDestination == 1,
+                        onClick = { navigateTab(1) },
                         icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                         label = { Text("设置") },
                     )
@@ -166,15 +180,15 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
             },
         ) { padding ->
             AnimatedContent(
-                targetState = state.homeSelected,
+                targetState = selectedDestination,
                 label = "topTabs",
                 transitionSpec = {
                     // 官方 Tab 样式：轻柔交叉淡入淡出
                     fadeIn(tween(200)) togetherWith fadeOut(tween(200))
                 },
-            ) { homeSelected ->
+            ) { selected ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    if (homeSelected) {
+                    if (selected == 0) {
                         HomeScreen(vm = vm, onOpenWizard = { vm.openDetail(DetailRoutes.WIZARD) })
                     } else {
                         SettingsScreen(vm = settingsVm)
@@ -196,8 +210,11 @@ fun AppRoot(vm: PatchViewModel, settingsVm: SettingsViewModel) {
                         tween(300, easing = FastOutSlowInEasing),
                     ) togetherWith ExitTransition.KeepUntilTransitionsFinished
                 } else {
-                    // 栈顶向右滑走；露出的下层原地出现
-                    EnterTransition.None togetherWith slideOutOfContainer(
+                    // 栈顶向右滑走；同时露出下层从左侧滑回（避免空帧闪现基座）
+                    slideIntoContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Right,
+                        tween(300, easing = FastOutSlowInEasing),
+                    ) togetherWith slideOutOfContainer(
                         AnimatedContentTransitionScope.SlideDirection.Right,
                         tween(300, easing = FastOutSlowInEasing),
                     )
